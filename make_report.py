@@ -52,7 +52,7 @@ def read_excel_city(fname, sname, city):
     return(city_data)
 #enddef
 
-def read_codebook(fname,sname,code):
+def read_codebook2(fname,sname,code):
 
     #translate code from Results sheet to that of Codebook
     #I already changed some that ended in RWJ
@@ -115,18 +115,78 @@ def read_codebook(fname,sname,code):
     return(code_data)
 #enddef
 
+def read_codebook(fname,sname):
+    print("reading the codebook")    
+    #open the workbook
+    wb    = openpyxl.load_workbook(fname)
+    sheet = wb[sname]
+
+    max_row = sheet.max_row
+    max_col = sheet.max_column
+
+    #get the headers (as a key for a dict)
+    keys          = []    
+    indicator_col = 0
+    for i in range(1,max_col+1,1):  #add 1 b/c of range
+        key = sheet.cell(row=1,column=i).value
+        keys.append(key)
+        if key == 'Indicator':
+            indicator_col = i
+        #endif
+    #endfor   
+
+    
+    code_data = {}
+    if 'Indicator' in keys:
+        codes = []        
+        for i in range(2,max_row+1,1): #start on row 2 and add 1 b/c of range
+            code = sheet.cell(row=i,column=indicator_col).value
+
+            #translate code from Codebook to match that of Results sheet
+            #I already changed some that ended in RWJ
+            if code == "sdg2v4_obesityRWJ":
+                code = "sdg2v4_obesity"
+            #endif
+            if code == "sdg3v6_mentalhealthRWJ":
+                code = "sdg3v6_mentalhealth"
+            #endif
+            if code == "sdg3v7_overdoseRWJ":
+                code = "sdg3v7_overdose"
+            #endif
+            if code == "sdg3v8_leRWJ":
+                code = "sdg3v8_lifeExpectancy"
+            #endif
+            if code == "sdg4v4_HSgradRWJ":
+                code = "sdg4v4_HSgrad"                
+            #endif
+            if code == "sdg10v7_segregationRWJ":
+                code = "sdg10v7_segregation"
+            #endif
+            
+            code_data[code]={}
+            for j in range(1, max_col+1,1): #loop over each column
+                code_data[code].update([(keys[j-1],sheet.cell(row=i,column=j).value)])
+            #endfor
+        #endfor
+    else:
+        print("Error - column header 'Indicator' not found - check xlsx file.")
+        sys.exit()
+    #endif    
+    return(code_data)
+#enddef
+
 #here's where the BIG math is done
-def get_color_status(code_data, city_data, target):
-    city_val = city_data[target]
-    print(target,city_val)
+def get_color_status(indicator_code_data, city_data, indicator_code):
+    city_val = city_data[indicator_code]
+    print(indicator_code,city_val)
     color = "red" #default
     
-    sorder    = code_data['Sort Order']
-    to_orange = code_data['To Orange']
-    to_yellow = code_data['To Yellow']
-    to_green  = code_data['To Green']
+    sorder    = indicator_code_data['Sort Order']
+    to_orange = indicator_code_data['To Orange']
+    to_yellow = indicator_code_data['To Yellow']
+    to_green  = indicator_code_data['To Green']
 
-    print(city_val,sorder, to_orange,to_yellow,to_green)
+    print(city_val, sorder, to_orange, to_yellow, to_green)
 
     if city_val is None:
         color = "gray"
@@ -170,7 +230,7 @@ def fix_val(nval):
 #----------------------------------------------------------------
 # main latex generator
 #----------------------------------------------------------------
-def make_goal_figs(rep_dir,city_data):        
+def make_goal_figs(rep_dir, city_data, code_data):        
 
     for i in range(1,18,1):
         sdgx = "sdg"+str(i)
@@ -179,19 +239,18 @@ def make_goal_figs(rep_dir,city_data):
         fig_data = []
         
         sdgxv = sdgx + "v"
-        for k,v in city_data.items():
-            if k.startswith(sdgxv):
-                print("get data for target:" + k)
-                code_data = get_code_data(k)
-                target = k
-                color  = get_color_status(code_data,city_data,target)
-                iname  = code_data['Indicator name']
-                val    = city_data[target]  #measured value
-                nval   = city_data["n_"+k]  #normalized value - used to calc goal score
-                val  = fix_val(val)
-                nval = fix_val(nval)
+        for indicator_code, v in city_data.items():
+            if indicator_code.startswith(sdgxv):
+                print("get data for indicator:" + indicator_code)
+                indicator_dict = code_data[indicator_code]
+                color = get_color_status(indicator_dict,city_data,indicator_code)
+                iname = indicator_dict['Indicator name']
+                val   = city_data[indicator_code]      #measured value
+                nval  = city_data["n_"+indicator_code] #normalized value - used to calc goal score
+                val   = fix_val(val)
+                nval  = fix_val(nval)
                 
-                fig_data.append([target,color,iname,code_data,nval,val])
+                fig_data.append([indicator_code,color,iname,indicator_dict,nval,val])
             #endif
         #endfor
 
@@ -212,9 +271,9 @@ def make_goal_figs(rep_dir,city_data):
         #endfor
         figtex = figtex + "\\\\ \n"
         for k in range(0,len(fig_data)):
-            color = fig_data[k][1]
-            nval  = fig_data[k][4]
-            val   = fig_data[k][5]
+            color  = fig_data[k][1]
+            nval   = fig_data[k][4]
+            val    = fig_data[k][5]
             figtex = figtex + " & " + "\\cellcolor{"+color+"} " + str(val)
         #endfor                
         figtex = figtex + "\\\\ \n"
@@ -236,14 +295,14 @@ def make_goal_figs(rep_dir,city_data):
         print("making the text here...")
         sectex = ""        
         for k in range(0,len(fig_data)):
-            target    = fig_data[k][0]
-            code_data = fig_data[k][3]
-            iname  = code_data['Indicator name']
-            desc   = code_data['Description']
-            sdg    = code_data['SDG']
-            sdga   = code_data['SDG Alignment']
-            source = code_data['Source']
-            rat    = code_data['Threshold Rationale']
+            target     = fig_data[k][0]
+            icode_data = fig_data[k][3]
+            iname  = icode_data['Indicator name']
+            desc   = icode_data['Description']
+            sdg    = icode_data['SDG']
+            sdga   = icode_data['SDG Alignment']
+            source = icode_data['Source']
+            rat    = icode_data['Threshold Rationale']
 
             #make the comment file for this goal (to add comments on local performance)
             cfname = os.path.join(rep_dir,"comments")
@@ -358,13 +417,26 @@ def make_summary_fig(rep_dir,city_data):
 #enddef
 
 #----------------------------------------------------------------
-def get_code_data(code):
+
+def get_code_data_aux(code):
     data_dir  = 'data'
     fname     = '2019USCitiesIndexResults.xlsx'
     fname     = os.path.join(os.getcwd(),os.path.join(data_dir,fname))
 
     sname     = 'Codebook'
-    code_data = read_codebook(fname,sname,code)
+    code_data = read_codebook2(fname,sname,code)
+    return code_data
+#enddef
+
+def get_code_data(city_data):
+    data_dir  = 'data'
+    fname     = '2019USCitiesIndexResults.xlsx'
+    fname     = os.path.join(os.getcwd(),os.path.join(data_dir,fname))
+
+    sname     = 'Codebook'
+    
+    code_data = read_codebook(fname,sname)
+    
     return code_data
 #enddef
 
@@ -403,8 +475,9 @@ def main(city):
 
     #get the data and generate the report
     city_data = get_city_data(city)
-
-#    make_goal_figs(rep_dir,city_data)
+    code_data = get_code_data(city_data)
+    
+    make_goal_figs(rep_dir, city_data, code_data)
     #make_target_figs or words that go in each subsection
     make_summary_fig(rep_dir,city_data)
     
