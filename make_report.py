@@ -52,69 +52,6 @@ def read_excel_city(fname, sname, city):
     return(city_data)
 #enddef
 
-def read_codebook2(fname,sname,code):
-
-    #translate code from Results sheet to that of Codebook
-    #I already changed some that ended in RWJ
-    if code == "sdg3v8_lifeExpectancy":
-        code = "sdg3v8_le"
-    #endif
-    if code == "sdg4v4_HSgrad":
-        code = "sdg4v4_Hsgrad"
-    #endif
-    
-    print("reading the codebook")    
-    #open the workbook
-    wb    = openpyxl.load_workbook(fname)
-    sheet = wb[sname]
-
-    max_row = sheet.max_row
-    max_col = sheet.max_column
-
-    #get the headers (as a key for a dict)
-    code_data     = {}
-    keys          = []    
-    indicator_col = 0
-    for i in range(1,max_col+1,1):  #add 1 b/c of range
-        key = sheet.cell(row=1,column=i).value
-        keys.append(key)
-        if key == 'Indicator':
-            indicator_col = i
-        #endif
-    #endfor
-    
-    if 'Indicator' in keys:
-        found_code = False
-        code_row   = 0
-        for i in range(1,max_row+1,1): #add 1 b/c of range
-            maincode = sheet.cell(row=i,column=indicator_col).value
-            if maincode == code:
-                found_code = True
-                code_row   = i
-            #endif
-        #endfor
-        
-        if found_code:
-            for i in range(1,max_col+1,1): #add 1 b/c of range
-                val = sheet.cell(row=code_row,column=i).value
-                code_data[keys[i-1]]=val
-            #endfor
-        else:
-            print("Error - Indicator (" + code + ") not found - check your spelling.")
-            sys.exit()
-        #endif
-    else:
-        print("Error - column header 'Indicator' not found - check xlsx file.")
-        sys.exit()
-    #endif
-
-#    for k,v in code_data.items():
-#        print(k,":",v)
-    
-    
-    return(code_data)
-#enddef
-
 def read_codebook(fname,sname):
     print("reading the codebook")    
     #open the workbook
@@ -244,15 +181,21 @@ def make_goal_figs(rep_dir, city_data, code_data):
                 print("get data for indicator:" + indicator_code)
                 indicator_dict = code_data[indicator_code]
                 color = get_color_status(indicator_dict,city_data,indicator_code)
-                iname = indicator_dict['Indicator name']
+
+                code_data[indicator_code].update([('color',color)])
+                
                 val   = city_data[indicator_code]      #measured value
                 nval  = city_data["n_"+indicator_code] #normalized value - used to calc goal score
                 val   = fix_val(val)
                 nval  = fix_val(nval)
+                sdg_align = indicator_dict['SDG Alignment']
                 
-                fig_data.append([indicator_code,color,iname,indicator_dict,nval,val])
+                fig_data.append([sdg_align,indicator_code,color,indicator_dict,nval,val])
             #endif
         #endfor
+
+        #sort fig_data by the indicator_code
+        fig_data.sort(key = lambda x: x[0])
 
         print("making the figure for SDG"+str(i))
         #MAKE THE FIGURE HERE
@@ -266,12 +209,12 @@ def make_goal_figs(rep_dir, city_data, code_data):
         figtex = figtex + "\\toprule\n"
         figtex = figtex + "\\multirow{2}{*}{\includegraphics[height=2em]{../figs/Goal"+str(i)+".pdf}} \n"
         for k in range(0,len(fig_data)):
-            iname = fig_data[k][2]
+            iname = fig_data[k][3]['Indicator name']
             figtex = figtex + " & " + iname
         #endfor
         figtex = figtex + "\\\\ \n"
         for k in range(0,len(fig_data)):
-            color  = fig_data[k][1]
+            color  = fig_data[k][2]
             nval   = fig_data[k][4]
             val    = fig_data[k][5]
             figtex = figtex + " & " + "\\cellcolor{"+color+"} " + str(val)
@@ -295,14 +238,21 @@ def make_goal_figs(rep_dir, city_data, code_data):
         print("making the text here...")
         sectex = ""        
         for k in range(0,len(fig_data)):
-            target     = fig_data[k][0]
+            target     = fig_data[k][1]
             icode_data = fig_data[k][3]
             iname  = icode_data['Indicator name']
             desc   = icode_data['Description']
+            uyear  = icode_data['Year']
+            units  = icode_data['Units']
+            geo    = icode_data['Geographic Level']
             sdg    = icode_data['SDG']
             sdga   = icode_data['SDG Alignment']
+            tval   = str(round(icode_data['Target Value'],2))
             source = icode_data['Source']
             rat    = icode_data['Threshold Rationale']
+            global_ind = icode_data['Global Indicator']
+            us_ind = icode_data['State Indicator']
+            delta  = icode_data['Changes from 2018']
 
             #make the comment file for this goal (to add comments on local performance)
             cfname = os.path.join(rep_dir,"comments")
@@ -326,6 +276,17 @@ def make_goal_figs(rep_dir, city_data, code_data):
                 desc = desc.replace(u'\u2265',"$\geq$")  #>= symbol
                 print(desc)
             #endif
+
+            if u"\u00B5" in units:
+                units = units.replace(u'\u00B5',"$\mu$") #mu
+            #endif
+            if units == "$\mu$g/m^3":
+                units = "$\mu g/ m^3$"
+            #endif
+            if units == "%":
+                units = "\%"
+            #endif
+            print(units)
             
             if desc[-1] in [".","!","?"]:
                 pass
@@ -335,10 +296,15 @@ def make_goal_figs(rep_dir, city_data, code_data):
 
             source = source.replace("&", "\&")
             
-            
             sectex = sectex + "\\item [Description] " + desc + "\n"
+            #sectex = sectex + "\\item [Units] " + units + "\n"
+            sectex = sectex + "\\item [Geo. Level] " + geo + "\n"
             sectex = sectex + "\\item [Source] " + source + "\n"
+            sectex = sectex + "\\item [Target Val]" + tval + "\n"
             sectex = sectex + "\\item [Threshold] " + rat + "\n"
+            sectex = sectex + "\\item [Global Ind] " + global_ind + "\n"            
+            sectex = sectex + "\\item [USA Ind] " + us_ind + "\n"            
+            sectex = sectex + "\\item [Change from 2018] " + delta + "\n"            
             sectex = sectex + "\\item [Comments] \\input{./comments/sdg"+str(sdg)+"-"+ target  +"}\n"
             sectex = sectex + "\\end{labeling}\n"
 
@@ -355,11 +321,11 @@ def make_goal_figs(rep_dir, city_data, code_data):
         print("...done making the text\n")
         
     #endfor
-
+    return code_data
 #enddef
 
 #----------------------------------------------------------------
-def make_summary_fig(rep_dir,city_data):
+def make_summary_fig(rep_dir,city_data, code_data):
     print("TODO - make the summary table")
     print("probably call an aux routine that is used in the target_figs")
 
@@ -417,17 +383,102 @@ def make_summary_fig(rep_dir,city_data):
 #enddef
 
 #----------------------------------------------------------------
+def make_summary_fig2(rep_dir, city_data, code_data):
 
-def get_code_data_aux(code):
-    data_dir  = 'data'
-    fname     = '2019USCitiesIndexResults.xlsx'
-    fname     = os.path.join(os.getcwd(),os.path.join(data_dir,fname))
+    sdg_i = []
+    for i in range(1,18,1):
+        num_cols = 2        
+        sdgx = "sdg"+str(i)
+        print("create figure for SDG: " + sdgx)
 
-    sname     = 'Codebook'
-    code_data = read_codebook2(fname,sname,code)
-    return code_data
+        fig_data = []
+        
+        sdgxv = sdgx + "v"
+        for indicator_code, v in city_data.items():
+            if indicator_code.startswith(sdgxv):
+                num_cols = num_cols + 1
+            #endif
+        #endfor
+        sdg_i.append(num_cols)
+    #endfor
+    max_indicators = max(sdg_i)
+        
+    print("TODO - make the summary table")
+    print("probably call an aux routine that is used in the target_figs")
+
+    cfmt = ">{\\columncolor{white}[0.5\\tabcolsep]}"
+    
+    sumtex = ""
+    sumtex = sumtex + "\\begin{table}[ht]\n"
+    sumtex = sumtex + "\\setlength{\\tabcolsep}{2pt}\n"
+    
+    sumtex = sumtex + "\\centering\n"
+    sumtex = sumtex + "\\caption{Summary of Goals and Indicators}\n"
+    sumtex = sumtex + "\\label{tab:summary}\n"
+    sumtex = sumtex + "\\begin{tabular}{ "+cfmt + "\n"
+    for i in range(1,max_indicators):
+        sumtex = sumtex + "                c"+cfmt+"\n"
+    #endfor
+    sumtex = sumtex + "                c}\n"
+    sumtex = sumtex + "\\toprule\n"
+    score_all = int(round(city_data["score_sdgi"],0))
+    sumtex = sumtex + "\\includegraphics[width=\\allgoalwidth]{../figs/AllGoals.pdf} & " + str(score_all) + "\\\\ \n"    
+    sumtex = sumtex + "\\midrule\n"
+    
+    for i in range(1,18):
+        if i in (14,17):
+            score_sdg = ""
+        else:
+            score_sdg = int(round(city_data["score_sdg"+str(i)],0))
+        #endif
+        sumtex = sumtex + "\\includegraphics[width=\\allgoalwidth]{../figs/Goal"+str(i)+".pdf} & " + str(score_sdg)
+        
+        sdgx     = "sdg"+str(i)
+        ind_data = []
+        
+        sdgxv = sdgx + "v"
+        for indicator_code, v in city_data.items():
+            if indicator_code.startswith(sdgxv):
+                indicator_dict = code_data[indicator_code]                
+                sdg_align = indicator_dict['SDG Alignment']
+                color = indicator_dict['color']
+                nval  = city_data["n_"+indicator_code] #normalized value - used to calc goal score
+                nval  = fix_val(nval)
+                ind_data.append([sdg_align,color,nval])
+            #endif
+        #endfor
+
+        #sort fig_data by the indicator_code
+        ind_data.sort(key = lambda x: x[0])
+        for x in ind_data:
+            sumtex = sumtex + "& \\cellcolor{" + x[1] + "} " + str(x[2])
+        #endfor
+        
+        sumtex = sumtex + " \\\\ \n"
+        sumtex = sumtex + "\\addlinespace[1ex]\n"
+        
+
+    #endfor
+
+    #DO MORE HERE
+    
+    sumtex = sumtex + "\\bottomrule\n"
+    sumtex = sumtex + "\\end{tabular}\n"
+    sumtex = sumtex + "\\end{table}\n"
+
+    sfname = os.path.join(rep_dir,"summary-table.tex")
+    if os.path.exists(sfname):
+        os.remove(sfname)
+    #endif
+    with open(sfname,"w") as fh:
+        fh.writelines(sumtex)
+    #endwith
+    print("...done making summary table")
+    
 #enddef
 
+
+#----------------------------------------------------------------
 def get_code_data(city_data):
     data_dir  = 'data'
     fname     = '2019USCitiesIndexResults.xlsx'
@@ -477,9 +528,10 @@ def main(city):
     city_data = get_city_data(city)
     code_data = get_code_data(city_data)
     
-    make_goal_figs(rep_dir, city_data, code_data)
+    ucode_data = make_goal_figs(rep_dir, city_data, code_data)
     #make_target_figs or words that go in each subsection
-    make_summary_fig(rep_dir,city_data)
+#    make_summary_fig(rep_dir,city_data,ucode_data)
+    make_summary_fig2(rep_dir,city_data,ucode_data)
     
 #enddef
 
