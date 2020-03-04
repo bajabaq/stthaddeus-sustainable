@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import codecs
 import openpyxl
 import os
 import shutil
@@ -53,9 +54,12 @@ def read_excel_city(fname, sname, city):
 #enddef
 
 def read_codebook(fname,sname):
+    
     print("reading the codebook")    
     #open the workbook
-    wb    = openpyxl.load_workbook(fname)
+    
+    wb = openpyxl.load_workbook(fname)
+    
     sheet = wb[sname]
 
     max_row = sheet.max_row
@@ -165,6 +169,43 @@ def fix_val(nval):
 
 
 #----------------------------------------------------------------
+# replace unicode wierdness with plain ASCII for LaTeX
+#----------------------------------------------------------------      
+def fix_text(text):
+    #>= symbol
+    if u"\u2265" in text:
+        text = text.replace(u'\u2265',"$\geq$")  
+    #endif
+    
+    #nonbreaking space
+    if u"\u00A0" in text:
+        text = text.replace(u'\u00A0'," ")
+    #endif
+    
+    #windows has problem decoding this
+    if u"\u2019" in text:   #windows-1252 encoding for 92 = unicode 2019 = '
+        text = text.replace(u'\u2019',"'")  #apostrophe ("private use two?)
+    #endif
+ 
+    #mu   
+    if u"\u00B5" in text:
+        text = text.replace(u'\u00B5',"$\mu$")
+    #endif
+    
+    
+    if text == "$\mu$g/m^3":
+        text = "$\mu g/ m^3$"
+    #endif
+    
+    if text == "%":
+        text = "\%"
+    #endif
+        
+    return text
+#enddef        
+
+
+#----------------------------------------------------------------
 # main latex generator
 #----------------------------------------------------------------
 def make_goal_figs(rep_dir, city_data, code_data):        
@@ -240,6 +281,7 @@ def make_goal_figs(rep_dir, city_data, code_data):
         for k in range(0,len(fig_data)):
             target     = fig_data[k][1]
             icode_data = fig_data[k][3]
+            
             iname  = icode_data['Indicator name']
             desc   = icode_data['Description']
             uyear  = icode_data['Year']
@@ -265,29 +307,20 @@ def make_goal_figs(rep_dir, city_data, code_data):
             if os.path.exists(cfname):
                 pass
             else:
-                os.mknod(cfname)
+                #os.mknod(cfname) #only works on linux
+                with open(cfname,'w') as h:  #this should work on both
+                    pass
+                #endwith
             #endif
             
             sectex = sectex + "\\subsection{SDG " + str(sdg) + " " + sdga + " " + iname + "}\n"
             sectex = sectex + "\\begin{labeling}{DESCRIPTION  }\n"
-
-            if u"\u2265" in desc:
-                print(desc)
-                desc = desc.replace(u'\u2265',"$\geq$")  #>= symbol
-                print(desc)
-            #endif
-
-            if u"\u00B5" in units:
-                units = units.replace(u'\u00B5',"$\mu$") #mu
-            #endif
-            if units == "$\mu$g/m^3":
-                units = "$\mu g/ m^3$"
-            #endif
-            if units == "%":
-                units = "\%"
-            #endif
-            print(units)
             
+            desc = fix_text(desc)
+            rat  = fix_text(rat)
+            units= fix_text(units)   
+            
+            #add a punctuation mark to the end of the description sentence
             if desc[-1] in [".","!","?"]:
                 pass
             else:
@@ -536,6 +569,6 @@ def main(city):
 #enddef
 
 if __name__ == "__main__":
-    city = 'Augusta'
+    city = 'San Juan'
     main(city)
 #endif
